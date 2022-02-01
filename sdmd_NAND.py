@@ -7,6 +7,8 @@ from cvxpy import *
 from  sklearn.preprocessing import Normalizer
 import seaborn as sns
 import matplotlib.pyplot as plt
+import csv
+import sys
 
 def snapshots_from_df(df):
 
@@ -196,10 +198,20 @@ snapshot_dict = snapshots_from_df(df_tpm_filter)
 circuit_inds = list(range(13)) # circuit genes are in first 13 rows of df
 circuit_genes = all_genes_filter[:13]
 
+# select genes for modeling
+ara_lac = False # 13 ara and lac genes
+de_only = True # only differentially expressed genes
+
 # get host gene names and indices
-# my_genes,  my_inds  = get_ara_lac_genes(all_genes_filter) 
-my_genes, my_inds = get_DE_genes(res_dir_list,all_genes_filter,\
-                                    p_thresh=0.05,fc_thresh=2)
+if ara_lac:
+    p_thresh, fc_thresh = 'n/a', 'n/a'
+    my_genes,  my_inds  = get_ara_lac_genes(all_genes_filter) # only ara and lac genes, want to create more smaller networks like this:
+    selected_genes = 'ara_lac'
+# see: https://www.weizmann.ac.il/mcb/UriAlon/e-coli-transcription-network#:~:text=E.-,coli%20transcription%20network,in%20cells%20orchestrate%20gene%20expression.&text=Each%20network%20motif%20has%20a,responses%20to%20fluctuating%20external%20signals.
+elif de_only: 
+    p_thresh, fc_thresh = 0.05, 2.0
+    my_genes, my_inds = get_DE_genes(res_dir_list,all_genes_filter,p_thresh=p_thresh,fc_thresh=fc_thresh)
+    selected_genes = 'de_only'
 
 # Structured learning sequence:
 # 0) Learn host dynamics from wild type 
@@ -208,145 +220,156 @@ my_genes, my_inds = get_DE_genes(res_dir_list,all_genes_filter,\
 # 3) Learn control matrix that accounts for IcaR gate + IPTG dynamics
 # 4) Learn control matrix that accounts for NAND circuit + arabinose + iptg + phlf + nand
 
-# TEMP = '37'
-# NOISE_SCALER = 0.1 # parameter that controls sparsity. increase for increased sparsity
-# VERBOSE = False
-# # for large number of genes, heatmap visualization is cumbersome
-# doVisualizeHeatmaps = True
-# ################# Wild type dynamics ###################################
-# Yp = snapshot_dict['wt'][TEMP]['00']['Yp']
-# Yf = snapshot_dict['wt'][TEMP]['00']['Yf']
-# # normalize each snapshot to have unit norm, a dynamics preserving transformation
-# Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
-# Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
-# # compute the intrareplicate noise for regularizing K as motivated by Robust DMD
-# lambda_val_vec_p = np.std(Yp_normed,axis=1)[:,np.newaxis]
-# lambda_val_vec_f = np.std(Yf_normed,axis=1)[:,np.newaxis]
-# lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
-# K = calc_Koopman(Yf_normed,Yp_normed,flag=2,lambda_val=lambda_val_vec,\
-#     noise_scaler=NOISE_SCALER,verbose=VERBOSE)
+TEMP = '37'
+NOISE_SCALER = 1 # parameter that controls sparsity. increase for increased sparsity
+VERBOSE = True
+# for large number of genes, heatmap visualization is cumbersome
+doVisualizeHeatmaps = False
+# save state-space model
+doSave = True
+fn = 'x0_NAND' # name to save pickle file as, will also be used as id for run
 
-# ################# WT + arabinose dynamics ###################################
-# Yp = snapshot_dict['wt'][TEMP]['10']['Yp']
-# Yf = snapshot_dict['wt'][TEMP]['10']['Yf']
-# # normalize each snapshot to have unit norm, a dynamics preserving transformation
-# Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
-# Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
-# # treat arabinose as a step input to the system 
-# Uara = (Yp_normed.max() - Yf_normed.min())/2 * np.ones((1,Yp_normed.shape[1]))
-# # the scaling coefficient is to have mag of step be on same scale as the data
-# # compute the intrareplicate noise for regularizing K as motivated by Robust DMD
-# lambda_val_vec = np.std(Uara,axis=1)
-# # form the LHS of the optimization problem
-# LHS = Yf_normed  - K@Yp_normed
-# Kara = calc_input_Koopman(LHS,Uara,flag=2,lambda_val=lambda_val_vec,\
-#     noise_scaler=NOISE_SCALER,verbose=VERBOSE)
+# ensure unique filename/id is being used for the run
+prev_ids = pd.read_csv('data/run_log.csv')['id']
+if fn in list(prev_ids):
+    sys.exit("The id (fn) being used already exists in run_log.csv. Provide a unique name and retry.")
 
-# ################# WT + IPTG dynamics ###################################
-# Yp = snapshot_dict['wt'][TEMP]['01']['Yp']
-# Yf = snapshot_dict['wt'][TEMP]['01']['Yf']
-# # normalize each snapshot to have unit norm, a dynamics preserving transformation
-# Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
-# Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
-# # treat arabinose as a step input to the system 
-# Uiptg = (Yp_normed.max() - Yf_normed.min())/2 * np.ones((1,Yp_normed.shape[1]))
-# # the scaling coefficient is to have mag of step be on same scale as the data
-# # compute the intrareplicate noise for regularizing K as motivated by Robust DMD
-# lambda_val_vec = np.std(Uiptg,axis=1)
-# # form the LHS of the optimization problem
-# LHS = Yf_normed  - K@Yp_normed
-# Kiptg = calc_input_Koopman(LHS,Uiptg,flag=2,lambda_val=lambda_val_vec,\
-#     noise_scaler=NOISE_SCALER,verbose=VERBOSE)
+################# Wild type dynamics ###################################
+Yp = snapshot_dict['wt'][TEMP]['00']['Yp']
+Yf = snapshot_dict['wt'][TEMP]['00']['Yf']
+# normalize each snapshot to have unit norm, a dynamics preserving transformation
+Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
+Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
+# compute the intrareplicate noise for regularizing K as motivated by Robust DMD
+lambda_val_vec_p = np.std(Yp_normed,axis=1)[:,np.newaxis]
+lambda_val_vec_f = np.std(Yf_normed,axis=1)[:,np.newaxis]
+lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
+K = calc_Koopman(Yf_normed,Yp_normed,flag=2,lambda_val=lambda_val_vec,\
+    noise_scaler=NOISE_SCALER,verbose=VERBOSE)
 
-# ################# PhlF Gate + arabinose dynamics ###################################
-# Yp = snapshot_dict['phlf'][TEMP]['01']['Yp']
-# Yf = snapshot_dict['phlf'][TEMP]['01']['Yf']
-# # normalize each snapshot to have unit norm, a dynamics preserving transformation
-# Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
-# Uphlf_p, Uphlf_f = Yp_normed[circuit_inds], Yf_normed[circuit_inds]
-# Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
-# # compute the intrareplicate noise for regularizing K as motivated by Robust DMD
-# lambda_val_vec_p = np.std(Uphlf_p,axis=1)[:,np.newaxis]
-# lambda_val_vec_f = np.std(Uphlf_f,axis=1)[:,np.newaxis]
-# lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
-# # if number of samples in Yp/Yf do not match the number of  samples in the 
-# # previously used step inputs, simply downselect the step input as we do here
-# # form the LHS of the optimization problem
-# LHS = Yf_normed  - K@Yp_normed - Kara@Uara[:,:-1]
-# Kphlf = calc_input_Koopman(LHS,Uphlf_p,flag=2,lambda_val=lambda_val_vec,\
-#     noise_scaler=NOISE_SCALER,verbose=VERBOSE)
+################# WT + arabinose dynamics ###################################
+Yp = snapshot_dict['wt'][TEMP]['10']['Yp']
+Yf = snapshot_dict['wt'][TEMP]['10']['Yf']
+# normalize each snapshot to have unit norm, a dynamics preserving transformation
+Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
+Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
+# treat arabinose as a step input to the system 
+Uara = (Yp_normed.max() - Yf_normed.min())/2 * np.ones((1,Yp_normed.shape[1]))
+# the scaling coefficient is to have mag of step be on same scale as the data
+# compute the intrareplicate noise for regularizing K as motivated by Robust DMD
+lambda_val_vec = np.std(Uara,axis=1)
+# form the LHS of the optimization problem
+LHS = Yf_normed  - K@Yp_normed
+Kara = calc_input_Koopman(LHS,Uara,flag=2,lambda_val=lambda_val_vec,\
+    noise_scaler=NOISE_SCALER,verbose=VERBOSE)
 
-# ################# IcaR Gate + IPTG dynamics ###################################
-# Yp = snapshot_dict['icar'][TEMP]['01']['Yp']
-# Yf = snapshot_dict['icar'][TEMP]['01']['Yf']
-# # normalize each snapshot to have unit norm, a dynamics preserving transformation
-# Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
-# Uicar_p, Uicar_f = Yp_normed[circuit_inds], Yf_normed[circuit_inds]
-# Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
-# # compute the intrareplicate noise for regularizing K as motivated by Robust DMD
-# lambda_val_vec_p = np.std(Uicar_p,axis=1)[:,np.newaxis]
-# lambda_val_vec_f = np.std(Uicar_f,axis=1)[:,np.newaxis]
-# lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
-# # if number of samples in Yp/Yf do not match the number of  samples in the 
-# # previously used step inputs, simply downselect the step input as we do here
-# # this will only be an issue with the manually defined step inputs
-# # form the LHS of the optimization problem
-# print(Yf_normed.shape, Uiptg.shape)
-# LHS = Yf_normed  - K@Yp_normed - Kiptg@Uiptg[:,:-1]
-# # LHS = Yf_normed  - K@Yp_normed - Kiptg@np.hstack((Uiptg,Uiptg[:,0:1]))
-# Kicar = calc_input_Koopman(LHS,Uicar_p,flag=2,lambda_val=lambda_val_vec,\
-#     noise_scaler=NOISE_SCALER,verbose=VERBOSE)
+################# WT + IPTG dynamics ###################################
+Yp = snapshot_dict['wt'][TEMP]['01']['Yp']
+Yf = snapshot_dict['wt'][TEMP]['01']['Yf']
+# normalize each snapshot to have unit norm, a dynamics preserving transformation
+Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
+Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
+# treat arabinose as a step input to the system 
+Uiptg = (Yp_normed.max() - Yf_normed.min())/2 * np.ones((1,Yp_normed.shape[1]))
+# the scaling coefficient is to have mag of step be on same scale as the data
+# compute the intrareplicate noise for regularizing K as motivated by Robust DMD
+lambda_val_vec = np.std(Uiptg,axis=1)
+# form the LHS of the optimization problem
+LHS = Yf_normed  - K@Yp_normed
+Kiptg = calc_input_Koopman(LHS,Uiptg,flag=2,lambda_val=lambda_val_vec,\
+    noise_scaler=NOISE_SCALER,verbose=VERBOSE)
 
-# ########## NAND Circuit + arabinose + IPTG + Phlf Gate + Icar Gate dynamics ###################################
-# Yp = snapshot_dict['nand'][TEMP]['11']['Yp']
-# Yf = snapshot_dict['nand'][TEMP]['11']['Yf']
-# # normalize each snapshot to have unit norm, a dynamics preserving transformation
-# Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
-# Unand_p, Unand_f = Yp_normed[circuit_inds], Yf_normed[circuit_inds]
-# Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
-# # compute the intrareplicate noise for regularizing K as motivated by Robust DMD
-# lambda_val_vec_p = np.std(Unand_p,axis=1)[:,np.newaxis]
-# lambda_val_vec_f = np.std(Unand_f,axis=1)[:,np.newaxis]
-# lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
-# # form the LHS of the optimization problem
-# LHS = Yf_normed  - K@Yp_normed - Kiptg@Uiptg - Kara@Uara  - \
-#         Kphlf@Unand_p - Kicar@Unand_p
-# # LHS = Yf_normed  - K@Yp_normed - Kiptg@Uiptg \
-#         # - Kara@Uara[:,:-1]  - Kphlf@Unand_p - Kicar@Unand_p
-# Knand = calc_input_Koopman(LHS,Unand_p,flag=2,lambda_val=lambda_val_vec,\
-#     noise_scaler=NOISE_SCALER,verbose=VERBOSE)
+################# PhlF Gate + arabinose dynamics ###################################
+Yp = snapshot_dict['phlf'][TEMP]['01']['Yp']
+Yf = snapshot_dict['phlf'][TEMP]['01']['Yf']
+# normalize each snapshot to have unit norm, a dynamics preserving transformation
+Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
+Uphlf_p, Uphlf_f = Yp_normed[circuit_inds], Yf_normed[circuit_inds]
+Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
+# compute the intrareplicate noise for regularizing K as motivated by Robust DMD
+lambda_val_vec_p = np.std(Uphlf_p,axis=1)[:,np.newaxis]
+lambda_val_vec_f = np.std(Uphlf_f,axis=1)[:,np.newaxis]
+lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
+# if number of samples in Yp/Yf do not match the number of  samples in the 
+# previously used step inputs, simply downselect the step input as we do here
+# form the LHS of the optimization problem
+LHS = Yf_normed  - K@Yp_normed - Kara@Uara[:,:-1]
+Kphlf = calc_input_Koopman(LHS,Uphlf_p,flag=2,lambda_val=lambda_val_vec,\
+    noise_scaler=NOISE_SCALER,verbose=VERBOSE)
 
-# print(Yf_normed - K@Yp_normed -Kiptg@Uiptg - Kara@Uara - Kphlf@Unand_p)
+################# IcaR Gate + IPTG dynamics ###################################
+Yp = snapshot_dict['icar'][TEMP]['01']['Yp']
+Yf = snapshot_dict['icar'][TEMP]['01']['Yf']
+# normalize each snapshot to have unit norm, a dynamics preserving transformation
+Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
+Uicar_p, Uicar_f = Yp_normed[circuit_inds], Yf_normed[circuit_inds]
+Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
+# compute the intrareplicate noise for regularizing K as motivated by Robust DMD
+lambda_val_vec_p = np.std(Uicar_p,axis=1)[:,np.newaxis]
+lambda_val_vec_f = np.std(Uicar_f,axis=1)[:,np.newaxis]
+lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
+# if number of samples in Yp/Yf do not match the number of  samples in the 
+# previously used step inputs, simply downselect the step input as we do here
+# this will only be an issue with the manually defined step inputs
+# form the LHS of the optimization problem
+LHS = Yf_normed  - K@Yp_normed - Kiptg@Uiptg[:,:-1]
+# LHS = Yf_normed  - K@Yp_normed - Kiptg@np.hstack((Uiptg,Uiptg[:,0:1]))
+Kicar = calc_input_Koopman(LHS,Uicar_p,flag=2,lambda_val=lambda_val_vec,\
+    noise_scaler=NOISE_SCALER,verbose=VERBOSE)
 
-# if doVisualizeHeatmaps:
-#     # visualizing state-space model
-#     fig,axs = plt.subplots(2,3,figsize=(12,8),sharey=False)
-#     LW = 0.2
-#     sns.heatmap(K,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=my_genes,\
-#         yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
-#         ax=axs[0,0])
-#     sns.heatmap(Kara,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=['arabinose'],\
-#         yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
-#         ax=axs[0,1])
-#     sns.heatmap(Kiptg,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=['IPTG'],\
-#         yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
-#         ax=axs[0,2])
-#     sns.heatmap(Kphlf,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=circuit_genes,\
-#         yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
-#         ax=axs[1,0])
-#     sns.heatmap(Kicar,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=circuit_genes,\
-#         yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
-#         ax=axs[1,1])
-#     sns.heatmap(Knand,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=circuit_genes,\
-#         yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
-#         ax=axs[1,2])
-#     plt.tight_layout()
-#     plt.show()
+########## NAND Circuit + arabinose + IPTG + Phlf Gate + Icar Gate dynamics ###################################
+Yp = snapshot_dict['nand'][TEMP]['11']['Yp']
+Yf = snapshot_dict['nand'][TEMP]['11']['Yf']
+# normalize each snapshot to have unit norm, a dynamics preserving transformation
+Yp_normed, Yf_normed = apply_normalizer(Yp,Yf)
+Unand_p, Unand_f = Yp_normed[circuit_inds], Yf_normed[circuit_inds]
+Yp_normed, Yf_normed = Yp_normed[my_inds], Yf_normed[my_inds]
+# compute the intrareplicate noise for regularizing K as motivated by Robust DMD
+lambda_val_vec_p = np.std(Unand_p,axis=1)[:,np.newaxis]
+lambda_val_vec_f = np.std(Unand_f,axis=1)[:,np.newaxis]
+lambda_val_vec = np.std(np.hstack((lambda_val_vec_p,lambda_val_vec_f)),axis=1)
+# form the LHS of the optimization problem
+LHS = Yf_normed  - K@Yp_normed - Kiptg@Uiptg - Kara@Uara  - \
+        Kphlf@Unand_p - Kicar@Unand_p
+# LHS = Yf_normed  - K@Yp_normed - Kiptg@Uiptg \
+        # - Kara@Uara[:,:-1]  - Kphlf@Unand_p - Kicar@Unand_p
+Knand = calc_input_Koopman(LHS,Unand_p,flag=2,lambda_val=lambda_val_vec,\
+    noise_scaler=NOISE_SCALER,verbose=VERBOSE)
 
 
+if doVisualizeHeatmaps:
+    # visualizing state-space model
+    fig,axs = plt.subplots(2,3,figsize=(12,8),sharey=False)
+    LW = 0.2
+    sns.heatmap(K,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=my_genes,\
+        yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
+        ax=axs[0,0])
+    sns.heatmap(Kara,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=['arabinose'],\
+        yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
+        ax=axs[0,1])
+    sns.heatmap(Kiptg,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=['IPTG'],\
+        yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
+        ax=axs[0,2])
+    sns.heatmap(Kphlf,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=circuit_genes,\
+        yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
+        ax=axs[1,0])
+    sns.heatmap(Kicar,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=circuit_genes,\
+        yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
+        ax=axs[1,1])
+    sns.heatmap(Knand,square=True,linewidths=LW,linecolor='tab:gray',xticklabels=circuit_genes,\
+        yticklabels=my_genes,center=0,cbar_kws={'shrink':0.8,'extend':'both'},\
+        ax=axs[1,2])
+    plt.tight_layout()
+    plt.show()
 
-
-
+if doSave: 
+    pickle.dump([K,Kara,Kiptg,Kphlf,Kicar,Knand,my_genes,my_inds],open('data/'+fn+'.pkl','wb'))
+    df = pd.DataFrame({'id':[fn],'n_genes':[len(my_genes)],'padj_thresh':[p_thresh],'fc_thresh':[fc_thresh],\
+                        'selected_genes':selected_genes})
+    # before writing to run_log, need to start newline
+    with open('data/run_log.csv', 'a') as f:
+        f.write('\n')
+    df.to_csv('data/run_log.csv', mode='a', index=False, header=False)
 
 
 

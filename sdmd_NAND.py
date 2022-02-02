@@ -221,13 +221,13 @@ elif de_only:
 # 4) Learn control matrix that accounts for NAND circuit + arabinose + iptg + phlf + nand
 
 TEMP = '37'
-NOISE_SCALER = 1 # parameter that controls sparsity. increase for increased sparsity
+NOISE_SCALER = 0.1 # parameter that controls sparsity
 VERBOSE = True
 # for large number of genes, heatmap visualization is cumbersome
 doVisualizeHeatmaps = False
 # save state-space model
 doSave = True
-fn = 'x1_NAND' # name to save pickle file as, will also be used as id for run
+fn = 'x2_NAND' # name to save pickle file as, will also be used as id for run
 
 # ensure unique filename/id is being used for the run
 prev_ids = pd.read_csv('data/run_log.csv')['id']
@@ -365,7 +365,7 @@ if doVisualizeHeatmaps:
 if doSave: 
     pickle.dump([K,Kara,Kiptg,Kphlf,Kicar,Knand,my_genes,my_inds],open('data/'+fn+'.pkl','wb'))
     df = pd.DataFrame({'id':[fn],'n_genes':[len(my_genes)],'padj_thresh':[p_thresh],'fc_thresh':[fc_thresh],\
-                        'selected_genes':selected_genes})
+                        'selected_genes':selected_genes,'noise_scaler':NOISE_SCALER})
     # before writing to run_log, need to start newline
     with open('data/run_log.csv', 'a') as f:
         f.write('\n')

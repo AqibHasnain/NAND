@@ -1,4 +1,4 @@
-id,n_genes,padj_thresh,fc_thresh,selected_genes
-x0_NAND,13,n/a,n/a,ara_lac
-
-x1_NAND,695,0.05,2.0,de_only
+id,n_genes,padj_thresh,fc_thresh,selected_genes,noise_scaler
+x0_NAND,13,n/a,n/a,ara_lac,1
+,,,,,
+x1_NAND,695,0.05,2,de_only,1

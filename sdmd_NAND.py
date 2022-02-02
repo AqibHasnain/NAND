@@ -5,7 +5,7 @@ import pickle
 import cvxpy 
 from cvxpy import *
 from  sklearn.preprocessing import Normalizer
-import seaborn as sns
+# import seaborn as sns
 import matplotlib.pyplot as plt
 import csv
 import sys
@@ -227,7 +227,7 @@ VERBOSE = True
 doVisualizeHeatmaps = False
 # save state-space model
 doSave = True
-fn = 'x0_NAND' # name to save pickle file as, will also be used as id for run
+fn = 'x1_NAND' # name to save pickle file as, will also be used as id for run
 
 # ensure unique filename/id is being used for the run
 prev_ids = pd.read_csv('data/run_log.csv')['id']
